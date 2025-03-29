@@ -1,5 +1,7 @@
 ### Formal Grammar
 
+comment ::= (*{string_literal}*)
+
 lower_case_character ::= a...z
 
 upper_case_character ::= A...Z
@@ -44,7 +46,7 @@ sequence_keywords ::= ```
 ### Example
 
 let x: int = 4;;
--- int
+-- int = 4
 let x n = 4 * n;;
 -- int -> int
 let exp n, m = n ^ m;;
