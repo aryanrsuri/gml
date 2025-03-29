@@ -5,17 +5,16 @@ pub enum Token {
     Comment(String),
 
     // Literals
-    Char(char),
     String(String),
     Int(String),
     Float(String),
+    Char(char),
     Bool(bool),
 
     // Operators
     Bang,
     Tilde,
     Percent,
-    LessThan,
     Colon,
     Period,
     Ampersand,
@@ -23,18 +22,21 @@ pub enum Token {
     Minus,
     Asterisk,
     ForwardSlash,
+    BackwardSlash,
     Equal,
+    LessThan,
+    LessThanOrEqual,
     GreaterThan,
+    GreaterThanOrEqual,
     PlusPlus,
     Caret,
     VerticalBar,
     NotEqual,
-    SingleQuote,
     LeftParen,
-    Unit, // ()
+    Unit,
     RightParen,
-    RightArrow, // ->
-    LeftArrow,  // <-
+    RightArrow,
+    LeftArrow,
     PeriodPeriod,
     ColonColon,
     EqualEqual,
@@ -46,10 +48,6 @@ pub enum Token {
     QuestionMark,
     SemiColon,
     SemiColonSemiColon,
-    // NOTE: Do I need these tokens?
-    CommentStart, // (*
-    CommentEnd,   // *)
-
     Illegal,
     EOF,
 }

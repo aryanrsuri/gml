@@ -19,7 +19,7 @@ fn main() {
             let token = l.advance();
             if token == Token::EOF {
                 break;
-            } 
+            }
             println!("{:?}", token);
         }
     }

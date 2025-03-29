@@ -29,7 +29,6 @@ impl Lexer {
             ch: '\0',
         };
 
-        // Fill the curr and peek lexer
         lexer.read();
         lexer
     }
@@ -139,18 +138,6 @@ impl Lexer {
         Token::Comment(result)
     }
 
-    // pub fn read_char(&mut self) -> Token {
-    //     self.read();
-    //     if self.ch != '\0' && self.ch != '\'' && self.ch.is_alphabetic() && self.read_peek_char() == '\'' {
-    //         let c = self.ch;
-    //         self.read();
-    //         self.read();
-    //         Token::Char(c)
-    //     } else {
-    //         Token::Illegal
-    //     }
-    // }
-
     pub fn advance(&mut self) -> Token {
         loop {
             if is_whitespace(self.ch) {
@@ -201,6 +188,41 @@ impl Lexer {
                     Token::Colon
                 }
             }
+            '.' => {
+                if self.read_peek_char() == '.' {
+                    self.read();
+                    Token::PeriodPeriod
+                } else {
+                    Token::Period
+                }
+            }
+            '>' => {
+                if self.read_peek_char() == '=' {
+                    self.read();
+                    Token::GreaterThanOrEqual
+                } else {
+                    Token::GreaterThan
+                }
+            }
+            '-' => {
+                if self.read_peek_char() == '>' {
+                    self.read();
+                    Token::RightArrow
+                } else {
+                    Token::Minus
+                }
+            }
+            '<' => {
+                if self.read_peek_char() == '=' {
+                    self.read();
+                    Token::LessThanOrEqual
+                } else if self.read_peek_char() == '-' {
+                    self.read();
+                    Token::LeftArrow
+                } else {
+                    Token::LessThan
+                }
+            }
             '(' => {
                 if self.read_peek_char() == ')' {
                     self.read();
@@ -212,11 +234,23 @@ impl Lexer {
                     Token::LeftParen
                 }
             }
-            // FIXME: Chars are subtly difficult to write without an LLM.
-            // '\'' => return self.read_char(),
+            '~' => Token::Tilde,
+            '%' => Token::Percent,
+            '?' => Token::QuestionMark,
+            '&' => Token::Ampersand,
+            '*' => Token::Asterisk,
+            '^' => Token::Caret,
+            '|' => Token::VerticalBar,
+            '/' => Token::BackwardSlash,
+            '{' => Token::LeftBrace,
+            '}' => Token::RightBrace,
+            '[' => Token::LeftBracket,
+            ']' => Token::RightBracket,
+            ',' => Token::Comma,
             '"' => return self.read_string(),
             '0'..='9' => return self.read_number(),
             'a'..='z' | 'A'..='Z' => return self.read_identifier(),
+            '\\' => Token::ForwardSlash,
             '\0' => Token::EOF,
             _ => Token::Illegal,
         };
