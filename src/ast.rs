@@ -1,6 +1,8 @@
 pub type Program = Vec<Statement>;
+#[derive(Debug)]
 pub struct Identifier(pub String);
 
+#[derive(Debug)]
 pub enum Statement {
     Comment(Identifier),
     Let(Identifier, Option<TypeAnnotation>, Expression),
@@ -9,6 +11,7 @@ pub enum Statement {
     Type(TypeDefinition),
 }
 
+#[derive(Debug)]
 pub enum TypeAnnotation {
     Int,
     Float,
@@ -25,6 +28,7 @@ pub enum TypeAnnotation {
     Tuple(Vec<TypeAnnotation>),
 }
 
+#[derive(Debug)]
 pub enum TypeDefinition {
     Alias {
         name: Identifier,
@@ -43,11 +47,13 @@ pub enum TypeDefinition {
     },
 }
 
+#[derive(Debug)]
 pub struct UnionVariant {
     tag: Identifier,
     types: Vec<TypeAnnotation>,
 }
 
+#[derive(Debug)]
 pub enum Literal {
     Int(i64),
     Float(f64),
@@ -56,6 +62,7 @@ pub enum Literal {
     Unit,
 }
 
+#[derive(Debug)]
 pub enum Expression {
     Identifier(Identifier),
     Literal(Literal),
@@ -85,12 +92,14 @@ pub enum Expression {
     MemberAccess(Box<Expression>, Identifier),
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Prefix {
     Tilde,
     Bang,
     Minus,
 }
 
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Infix {
     Plus,
     Minus,
