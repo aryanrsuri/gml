@@ -21,7 +21,7 @@ fn main() {
                 println!(">>> {:#?}", p.errors);
             }
             // FIXME: Add to an `else` statement once parser is fully implemented.
-            println!(">>> {:#?}", program);
+            println!(">>> {:?}", program);
         }
     }
 }

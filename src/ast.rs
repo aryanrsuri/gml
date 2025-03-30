@@ -5,7 +5,7 @@ pub struct Identifier(pub String);
 #[derive(Debug)]
 pub enum Statement {
     Comment(Identifier),
-    Let(Identifier, Option<TypeAnnotation>, Expression),
+    Let(Identifier, TypeAnnotation, Expression),
     Return(Expression),
     Expression(Expression),
     Type(TypeDefinition),
