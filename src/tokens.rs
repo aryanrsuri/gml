@@ -1,10 +1,7 @@
 #[derive(Debug, PartialEq)]
 pub enum Token {
-    // Bindings and Keywords
     Identifier(String),
     Comment(String),
-
-    // Literals
     String(String),
     Int(String),
     Float(String),
@@ -50,4 +47,16 @@ pub enum Token {
     SemiColonSemiColon,
     Illegal,
     EOF,
+
+    // Keywords
+    Fun,
+    Let,
+    Return,
+    If,
+    Then,
+    Else,
+    Type,
+    Match,
+    With,
+    Of,
 }

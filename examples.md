@@ -1,9 +1,8 @@
-let x: int = 4;;
--- int
-let x n = 4 * n;;
--- int -> int
+let value: int = 4;;
+let square n = n * n;;
 let exp n, m = n ^ m;;
--- int -> int -> int
+square 10 ;; 
+square exp 10 2 ;;
 
 match xs with
   | hd :: rst -> Some hd
@@ -14,11 +13,14 @@ type state =
   | alive of int
   | dormant
   ;;
--- alive | dormant
+
+type number = int;
 
 type cell = { 
-  length: int;
+  length: number;
   state: state;
-  position: tuple * (int * int); }
+  position: int * int; }
   ;;
--- { length * state * position }
+
+
+let first: cell = { length = 1, state = alive 10, position: (1, 1)}

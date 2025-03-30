@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::tokens::Token;
 
 pub fn is_whitespace(c: char) -> bool {
@@ -77,10 +79,17 @@ impl Lexer {
             }
         }
         let ident = self.utf8[current..self.curr].iter().collect::<String>();
-        if ident == "true" || ident == "false" {
-            Token::Bool(ident.parse::<bool>().unwrap())
-        } else {
-            Token::Identifier(ident)
+        match ident.as_str() {
+            "fun" => Token::Fun,
+            "let" => Token::Let,
+            "if" => Token::If,
+            "then" => Token::Then,
+            "else" => Token::Else,
+            "type" => Token::Type,
+            "match" => Token::Match,
+            "with" => Token::With,
+            "of" => Token::Of,
+            _ => Token::Identifier(ident),
         }
     }
 
