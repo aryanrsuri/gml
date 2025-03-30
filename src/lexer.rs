@@ -138,13 +138,13 @@ impl Lexer {
             } else if self.ch == '*' && self.read_peek_char() == ')' {
                 self.read();
                 self.read();
-                break;
+                return Token::Comment(String::from(result.trim_start().trim_end()));
             } else {
                 result.push(self.ch);
             }
             self.read();
         }
-        Token::Comment(result)
+        Token::Illegal
     }
 
     pub fn advance(&mut self) -> Token {

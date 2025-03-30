@@ -4,15 +4,17 @@ use crate::{
     tokens::Token,
 };
 
+#[derive(Debug)]
 pub enum Error {
+    Unimplemented,
     TokenMismatch(String),
     TokenDoesNotExist(String),
 }
 pub struct Parser {
-    pub lexer: Lexer,
-    pub curr: Token,
+    lexer: Lexer,
+    curr: Token,
     peek: Token,
-    errors: Vec<Error>,
+    pub errors: Vec<Error>,
 }
 
 impl Parser {
@@ -50,7 +52,10 @@ impl Parser {
         match self.curr.clone() {
             Token::Let => self.parse_let_statement(),
             Token::Comment(s) => Some(Statement::Comment(Identifier(s))),
-            _ => None,
+            _ => {
+                self.errors.push(Error::Unimplemented);
+                None
+            }
         }
     }
 

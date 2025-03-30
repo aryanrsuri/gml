@@ -1,4 +1,3 @@
-use tokens::Token;
 pub mod ast;
 pub mod evaluator;
 pub mod lexer;
@@ -18,7 +17,11 @@ fn main() {
             let l = lexer::Lexer::new(&buffer);
             let mut p = parser::Parser::new(l);
             let program = p.parse_program();
-            println!(">>> {:?}", program);
+            if p.errors.len() > 0 {
+                println!(">>> {:#?}", p.errors);
+            }
+            // FIXME: Add to an `else` statement once parser is fully implemented.
+            println!(">>> {:#?}", program);
         }
     }
 }
