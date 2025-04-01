@@ -44,6 +44,10 @@ sequence_keywords ::= ```
 != | ' | ( | ) | -> | <- | .. | :: | == | , | _ | { | } | [ | ] | ; | ;;
 ```
 
+## Note
+Everything is an expression.
+
+Also, a semicolon defines a seequence so `(3*3); + 3;;` will add 9 and 3 = 12`, but `(3*3) + 3` is invalid
 
 
 

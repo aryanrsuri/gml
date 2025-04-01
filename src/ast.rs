@@ -1,17 +1,21 @@
 pub type Program = Vec<Statement>;
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Identifier(pub String);
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
     Comment(Identifier),
-    Let(Identifier, TypeAnnotation, Expression),
+    Let {
+        name: Identifier,
+        annotation: Option<TypeAnnotation>,
+        value: Expression,
+    },
     Return(Expression),
     Expression(Expression),
     Type(TypeDefinition),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeAnnotation {
     Int,
     Float,
@@ -26,13 +30,15 @@ pub enum TypeAnnotation {
     Fun(Vec<TypeAnnotation>, Box<TypeAnnotation>),
     // tuple : int * bool * string
     Tuple(Vec<TypeAnnotation>),
+    // Type variable for polymorphism e.g. 'a
+    Var(Identifier),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum TypeDefinition {
     Alias {
         name: Identifier,
-        // parameters: Vec<Identifier>,
+        parameters: Vec<Identifier>,
         target: TypeAnnotation,
     },
     Record {
@@ -47,13 +53,13 @@ pub enum TypeDefinition {
     },
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct UnionVariant {
     tag: Identifier,
     types: Vec<TypeAnnotation>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Int(i64),
     Float(f64),
@@ -62,7 +68,13 @@ pub enum Literal {
     Unit,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunParam {
+    pub name: Identifier,
+    pub annotation: Option<TypeAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Expression {
     Identifier(Identifier),
     Literal(Literal),
@@ -71,7 +83,7 @@ pub enum Expression {
     If {
         cond: Box<Expression>,
         then_branch: Box<Expression>,
-        else_branch: Option<Box<Expression>>,
+        else_branch: Box<Expression>,
     },
     Apply {
         func: Box<Expression>,
@@ -79,31 +91,32 @@ pub enum Expression {
     },
     // List.map (fun x->x*x) [1; 2; 3]
     Fun {
-        param: Vec<Identifier>,
-        body: Program,
+        params: Vec<FunParam>,
+        body: Box<Expression>,
     },
     Tuple(Vec<Expression>),
     List(Vec<Expression>),
-    // NOTE: Could be a struct
     Record(Identifier, Vec<(Identifier, Expression)>),
     // NOTE: Could be a struct
     // E.g Some 5 ; Ok "Value"
     Variant(Identifier, Identifier, Vec<Expression>),
     MemberAccess(Box<Expression>, Identifier),
+    Sequence(Box<Expression>, Box<Expression>),
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum Prefix {
     Tilde,
     Bang,
     Minus,
 }
 
-#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Clone, Hash)]
 pub enum Infix {
     Plus,
     Minus,
     Asterisk,
+    AsteriskAsterisk,
     ForwardSlash,
     Caret,
     Percent,

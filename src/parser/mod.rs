@@ -1,46 +1,68 @@
 use crate::{
-    ast::{Expression, Identifier, Literal, Program, Statement, TypeAnnotation},
+    ast::{
+        Expression, FunParam, Identifier, Infix, Literal, Prefix, Program, Statement,
+        TypeAnnotation,
+    },
     lexer::Lexer,
     tokens::Token,
 };
 
-#[derive(Debug)]
-pub enum Precendence {
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Precedence {
     Lowest,
+    Sequence, // ;
     Equals,
+    And,
     LessGreater,
     Sum,
     Product,
     Cons,
     Prefix,
-    BitwiseOperation,
-    Apply,
+    Apply, // f x
+    Index, // a.[i] or record.field
 }
 
-fn token_to_precendence(token: &Token) -> Precendence {
+fn token_to_precendence(token: &Token) -> Precedence {
     match token {
-        Token::Equal | Token::NotEqual => Precendence::Equals,
+        Token::SemiColon => Precedence::Sequence,
+        Token::Equal | Token::NotEqual => Precedence::Equals,
         Token::LessThan
         | Token::GreaterThan
         | Token::LessThanOrEqual
-        | Token::GreaterThanOrEqual => Precendence::LessGreater,
-        Token::Plus | Token::Minus => Precendence::Sum,
-        Token::Caret | Token::Percent | Token::Asterisk | Token::ForwardSlash => {
-            Precendence::Product
-        }
-        Token::Ampersand => Precendence::BitwiseOperation,
-        Token::Identifier(_) => Precendence::Apply,
-        _ => Precendence::Lowest,
+        | Token::GreaterThanOrEqual => Precedence::LessGreater,
+        Token::Plus | Token::Minus => Precedence::Sum,
+        Token::AsteriskAsterisk
+        | Token::Caret
+        | Token::Percent
+        | Token::Asterisk
+        | Token::ForwardSlash => Precedence::Product,
+        Token::ColonColon => Precedence::Cons,
+        Token::LeftParen
+        | Token::Identifier(_)
+        | Token::Int(_)
+        | Token::Float(_)
+        | Token::String(_)
+        | Token::Bool(_)
+        | Token::Unit
+        | Token::LeftBracket
+        | Token::LeftBrace
+        | Token::If
+        | Token::Fun => Precedence::Apply,
+        _ => Precedence::Lowest,
     }
 }
 
 #[derive(Debug)]
 pub enum Error {
     Unimplemented(String),
+    UnexpectedToken(Token),
     InvalidTypeAnnotation(String),
     PrefixDoesNotExistFor(Token),
+    InfixDoesNotExistFor(Token),
     TokenCurrMismatch { want: Token, got: Token },
     TokenPeekMismatch { want: Token, got: Token },
+    TokenExpected { want: Token, got: Token },
+    CouldNotParseLiteral(String, String),
     TokenDoesNotExist(String),
 }
 
@@ -78,6 +100,18 @@ impl Parser {
         }
     }
 
+    pub fn is_current(&mut self, expected: Token) -> bool {
+        if self.curr == expected {
+            true
+        } else {
+            self.errors.push(Error::TokenCurrMismatch {
+                want: expected,
+                got: self.curr.clone(),
+            });
+            false
+        }
+    }
+
     pub fn advance(&mut self) {
         self.curr = self.peek.clone();
         self.peek = self.lexer.advance();
@@ -86,10 +120,19 @@ impl Parser {
     pub fn parse_program(&mut self) -> Program {
         let mut program: Program = vec![];
         while self.curr != Token::EOF {
-            if let Some(statement) = self.parse_statement() {
-                program.push(statement);
+            match self.parse_statement() {
+                Some(statement) => program.push(statement),
+                None => {
+                    if self.curr != Token::EOF {
+                        self.advance();
+                    }
+                }
             }
-            self.advance();
+
+            if self.curr == Token::SemiColonSemiColon {
+                self.advance();
+            } else if self.curr != Token::EOF {
+            }
         }
         program
     }
@@ -97,23 +140,34 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Option<Statement> {
         match self.curr.clone() {
             Token::Let => self.parse_let_statement(),
-            Token::Comment(s) => Some(Statement::Comment(Identifier(s))),
-            _ => {
-                self.errors.push(Error::Unimplemented(format!(
-                    "Unimplemented Statement, likely a syntax error. Curr: {:?} Peek: {:?}",
-                    self.curr, self.peek
-                )));
-                None
+            Token::Comment(s) => {
+                self.advance();
+                Some(Statement::Comment(Identifier(s)))
             }
+            _ => match self.parse_expression(Precedence::Lowest) {
+                Some(expression) => {
+                    self.advance();
+                    Some(Statement::Expression(expression))
+                }
+                None => {
+                    if self.errors.is_empty()
+                        || !matches!(self.errors.last(), Some(Error::PrefixDoesNotExistFor(_)))
+                    {
+                        self.errors.push(Error::UnexpectedToken(self.curr.clone()));
+                    }
+                    self.advance();
+                    None
+                }
+            },
         }
     }
 
     pub fn parse_identifier(&mut self) -> Option<Identifier> {
-        match self.curr.clone() {
-            Token::Identifier(s) => Some(Identifier(s)),
+        match &self.curr {
+            Token::Identifier(s) => Some(Identifier(s.clone())),
             _ => {
                 self.errors.push(Error::TokenCurrMismatch {
-                    want: Token::Identifier(String::from("any")),
+                    want: Token::Identifier(String::from("Identifier")),
                     got: self.curr.clone(),
                 });
                 None
@@ -122,6 +176,38 @@ impl Parser {
     }
 
     pub fn parse_type_annotation(&mut self) -> Option<TypeAnnotation> {
+        let first_component = match self.parse_primitive_type_annotation() {
+            Some(t) => t,
+            None => return None,
+        };
+
+        if self.peek != Token::RightArrow {
+            return Some(first_component);
+        }
+
+        let mut params: Vec<TypeAnnotation> = vec![first_component];
+
+        while self.peek == Token::RightArrow {
+            self.advance();
+            self.advance();
+            let next_component = match self.parse_primitive_type_annotation() {
+                Some(t) => t,
+                None => return None,
+            };
+            params.push(next_component);
+        }
+
+        if params.len() < 2 {
+            self.errors.push(Error::InvalidTypeAnnotation(
+                "Function type requires at least two parts separated by ->".to_string(),
+            ));
+            return None;
+        }
+        let return_type = params.pop().unwrap();
+        Some(TypeAnnotation::Fun(params, Box::new(return_type)))
+    }
+
+    pub fn parse_primitive_type_annotation(&mut self) -> Option<TypeAnnotation> {
         match self.curr.clone() {
             Token::Identifier(s) => {
                 let annotation = match s.as_str() {
@@ -130,17 +216,13 @@ impl Parser {
                     "string" => TypeAnnotation::String,
                     "bool" => TypeAnnotation::Bool,
                     "unit" => TypeAnnotation::Unit,
-                    _ => {
-                        // FIXME: Need to implement Named, Product, Fun, and Tuple annotations
-                        self.errors.push(Error::InvalidTypeAnnotation(s));
-                        return None;
-                    }
+                    _ => TypeAnnotation::Named(Identifier(s)),
                 };
                 Some(annotation)
             }
             _ => {
                 self.errors.push(Error::TokenCurrMismatch {
-                    want: Token::Identifier(String::from("Type Annotation")),
+                    want: Token::Identifier(String::from("Type Annotation (e.g int, string)")),
                     got: self.curr.clone(),
                 });
                 None
@@ -153,39 +235,25 @@ impl Parser {
             Token::Identifier(_) => self.advance(),
             _ => return None,
         }
-        let identifier = match self.parse_identifier() {
+        let name = match self.parse_identifier() {
             Some(identifier) => identifier,
             None => return None,
         };
 
-        if !self.if_peek_advance(Token::Colon) {
-            return None;
-        }
         self.advance();
-        let annotation = match self.parse_type_annotation() {
-            Some(annotation) => annotation,
-            None => return None,
-        };
-        if !self.if_peek_advance(Token::Equal) {
-            return None;
+        match self.curr {
+            Token::Identifier(_) | Token::LeftParen => self.parse_function_let_binding(name),
+            Token::Colon | Token::Equal => self.parse_simple_let_binding(name),
+            _ => {
+                self.errors.push(Error::TokenExpected {
+                    want: Token::Colon,
+                    got: self.curr.clone(),
+                });
+                None
+            }
         }
-        self.advance();
-        // FIXME: Obviously, None should return None, this is just to ignore parse_expression while
-        // its under development
-        let expression = match self.parse_expression(Precendence::Lowest) {
-            Some(expression) => expression,
-            None => return None,
-        };
-        if !self.if_peek_advance(Token::SemiColonSemiColon) {
-            return None;
-        }
-        // println!(
-        //     "curr {:?} peek {:?} identifier {:?} annotation {:?}",
-        //     self.curr, self.peek, identifier, annotation
-        // );
-        //
-        Some(Statement::Let(identifier, annotation, expression))
     }
+
     fn parse_literal_expression(&mut self) -> Option<Expression> {
         match &self.curr {
             Token::Int(s) => match s.parse::<i64>() {
@@ -203,8 +271,128 @@ impl Parser {
         }
     }
 
-    pub fn parse_expression(&mut self, precendence: Precendence) -> Option<Expression> {
-        let mut first = match self.curr.clone() {
+    pub fn parse_function_parameter(&mut self) -> Option<FunParam> {
+        // x | (x: int)
+
+        match self.curr.clone() {
+            Token::Identifier(id) => Some(FunParam {
+                name: Identifier(id),
+                annotation: None,
+            }),
+
+            Token::LeftParen => {
+                self.advance();
+                let name = match self.parse_identifier() {
+                    Some(id) => id,
+                    None => return None,
+                };
+                self.advance();
+                if !self.is_current(Token::Colon) {
+                    return None;
+                }
+                self.advance();
+                let annotation = match self.parse_type_annotation() {
+                    Some(a) => a,
+                    None => return None,
+                };
+                self.advance();
+                if !self.is_current(Token::RightParen) {
+                    return None;
+                }
+                Some(FunParam {
+                    name,
+                    annotation: Some(annotation),
+                })
+            }
+
+            _ => {
+                self.errors.push(Error::TokenExpected {
+                    want: Token::Identifier(String::from("Expected parameter")),
+                    got: self.curr.clone(),
+                });
+                None
+            }
+        }
+    }
+
+    pub fn parse_function_let_binding(&mut self, name: Identifier) -> Option<Statement> {
+        let mut params: Vec<FunParam> = vec![];
+        while matches!(self.curr, Token::Identifier(_) | Token::LeftParen) {
+            match self.parse_function_parameter() {
+                Some(param) => params.push(param),
+                None => return None,
+            }
+            self.advance();
+        }
+        let return_annotation = if self.curr == Token::Colon {
+            self.advance();
+            let annotation = self.parse_type_annotation()?;
+            self.advance();
+            Some(annotation)
+        } else {
+            None
+        };
+
+        if !self.is_current(Token::Equal) {
+            return None;
+        }
+        self.advance();
+        let body = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => Box::new(expression),
+            None => return None,
+        };
+
+        if !self.if_peek_advance(Token::SemiColonSemiColon) {
+            return None;
+        }
+
+        let value = Expression::Fun { params, body };
+        Some(Statement::Let {
+            name,
+            annotation: return_annotation,
+            value,
+        })
+    }
+
+    pub fn parse_simple_let_binding(&mut self, name: Identifier) -> Option<Statement> {
+        let annotation = if self.curr == Token::Colon {
+            self.advance();
+            let a = self.parse_type_annotation()?;
+            self.advance();
+            Some(a)
+        } else {
+            None
+        };
+
+        if !self.is_current(Token::Equal) {
+            return None;
+        }
+        self.advance();
+
+        let value = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => expression,
+            None => return None,
+        };
+        if !self.if_peek_advance(Token::SemiColonSemiColon) {
+            return None;
+        }
+        Some(Statement::Let {
+            name,
+            annotation,
+            value,
+        })
+    }
+
+    pub fn peek_precedence(&mut self) -> Precedence {
+        token_to_precendence(&self.peek)
+    }
+
+    pub fn curr_precedence(&mut self) -> Precedence {
+        token_to_precendence(&self.curr)
+    }
+
+    pub fn parse_expression(&mut self, precendence: Precedence) -> Option<Expression> {
+        let mut left_expr = match self.curr.clone() {
             Token::Identifier(s) => Expression::Identifier(Identifier(s)),
             Token::Int(_) | Token::String(_) | Token::Float(_) | Token::Bool(_) | Token::Unit => {
                 match self.parse_literal_expression() {
@@ -212,6 +400,11 @@ impl Parser {
                     None => return None,
                 }
             }
+            Token::If => self.parse_if_then_expression()?,
+            Token::Fun => self.parse_function_expression()?,
+            Token::LeftBracket => self.parse_list_expression()?,
+            Token::LeftParen => self.parse_grouped_expression()?,
+            Token::Bang | Token::Minus | Token::Tilde => self.parse_prefix_expression()?,
             _ => {
                 self.errors
                     .push(Error::PrefixDoesNotExistFor(self.curr.clone()));
@@ -219,6 +412,231 @@ impl Parser {
             }
         };
 
-        Some(first)
+        while self.peek != Token::SemiColon && precendence < self.peek_precedence() {
+            match self.peek {
+                // Standard binary operators
+                Token::Plus
+                | Token::Minus
+                | Token::Asterisk
+                | Token::AsteriskAsterisk
+                | Token::ForwardSlash
+                | Token::Caret
+                | Token::Percent
+                | Token::EqualEqual
+                | Token::NotEqual
+                | Token::LessThan
+                | Token::GreaterThan
+                | Token::LessThanOrEqual
+                | Token::GreaterThanOrEqual
+                | Token::ColonColon
+                | Token::SemiColon => {
+                    self.advance(); // Consume the operator
+                    left_expr = match self.parse_infix_expression(left_expr) {
+                        Some(expr) => expr,
+                        None => return None,
+                    };
+                }
+                // Function Application (Implicit Infix)
+                Token::Identifier(_)
+                | Token::Int(_)
+                | Token::Float(_)
+                | Token::String(_)
+                | Token::Bool(_)
+                | Token::Unit
+                | Token::LeftParen
+                | Token::LeftBracket
+                | Token::LeftBrace
+                | Token::If
+                | Token::Fun => {
+                    left_expr = match self.parse_apply_expression(left_expr) {
+                        Some(expr) => expr,
+                        None => return None,
+                    };
+                }
+                _ => {
+                    return Some(left_expr);
+                }
+            }
+        }
+
+        Some(left_expr)
+    }
+
+    fn parse_list_expression(&mut self) -> Option<Expression> {
+        self.advance();
+        if self.curr == Token::RightBracket {
+            return Some(Expression::List(vec![]));
+        }
+        let first = match self.parse_expression(Precedence::Lowest) {
+            Some(expression) => expression,
+            None => return None,
+        };
+        let mut elements = vec![first];
+        self.advance();
+        while self.curr == Token::SemiColon {
+            self.advance();
+            let next = match self.parse_expression(Precedence::Sequence) {
+                Some(expression) => expression,
+                None => return None,
+            };
+            elements.push(next);
+            self.advance();
+        }
+        if !self.is_current(Token::RightBracket) {
+            return None;
+        }
+        if self.peek != Token::SemiColonSemiColon {
+            return None;
+        }
+        Some(Expression::List(elements))
+    }
+
+    fn parse_grouped_expression(&mut self) -> Option<Expression> {
+        self.advance();
+        let expr = self.parse_expression(Precedence::Lowest)?;
+        match self.peek {
+            Token::RightParen | Token::Comma => self.advance(),
+            _ => {
+                self.errors.push(Error::TokenPeekMismatch {
+                    want: Token::RightParen,
+                    got: self.curr.clone(),
+                });
+                return None;
+            }
+        }
+
+        if self.curr == Token::Comma {
+            return self.parse_tuple_expression(expr);
+        }
+
+        self.advance();
+
+        Some(expr)
+    }
+
+    fn parse_tuple_expression(&mut self, first: Expression) -> Option<Expression> {
+        let mut elements = vec![first];
+        while self.curr == Token::Comma {
+            self.advance();
+            let next = match self.parse_expression(Precedence::Lowest) {
+                Some(expression) => expression,
+                None => return None,
+            };
+            elements.push(next);
+            self.advance();
+        }
+        if !self.is_current(Token::RightParen) {
+            return None;
+        }
+        if self.peek != Token::SemiColonSemiColon {
+            return None;
+        }
+        Some(Expression::Tuple(elements))
+    }
+
+    fn parse_if_then_expression(&mut self) -> Option<Expression> {
+        self.advance();
+        let cond = Box::new(self.parse_expression(Precedence::Lowest)?);
+        if !self.if_peek_advance(Token::Then) {
+            return None;
+        }
+        self.advance();
+
+        let then_branch = Box::new(self.parse_expression(Precedence::Lowest)?);
+        if !self.if_peek_advance(Token::Else) {
+            return None;
+        }
+        self.advance();
+        let else_branch = Box::new(self.parse_expression(Precedence::Lowest)?);
+
+        Some(Expression::If {
+            cond,
+            then_branch,
+            else_branch,
+        })
+    }
+
+    fn parse_function_expression(&mut self) -> Option<Expression> {
+        self.advance();
+        let mut params: Vec<FunParam> = vec![];
+        while matches!(self.curr, Token::Identifier(_) | Token::LeftParen) {
+            match self.parse_function_parameter() {
+                Some(p) => params.push(p),
+                None => return None,
+            }
+            self.advance();
+        }
+
+        if !self.is_current(Token::RightArrow) {
+            return None;
+        }
+        self.advance();
+        let body = Box::new(self.parse_expression(Precedence::Lowest)?);
+        Some(Expression::Fun { params, body })
+    }
+
+    fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
+        let operator = match self.curr {
+            Token::Plus => Infix::Plus,
+            Token::Minus => Infix::Minus,
+            Token::Asterisk => Infix::Asterisk,
+            Token::AsteriskAsterisk => Infix::AsteriskAsterisk,
+            Token::ForwardSlash => Infix::ForwardSlash,
+            Token::Caret => Infix::Caret,
+            Token::Percent => Infix::Percent,
+            Token::EqualEqual => Infix::EqualEqual,
+            Token::NotEqual => Infix::NotEqual,
+            Token::LessThan => Infix::LessThan,
+            Token::GreaterThan => Infix::GreaterThan,
+            Token::LessThanOrEqual => Infix::LessThanOrEqual,
+            Token::GreaterThanOrEqual => Infix::GreaterThanOrEqual,
+            Token::ColonColon => Infix::ColonColon,
+            Token::SemiColon => {
+                let current_precedence = self.curr_precedence();
+                self.advance(); // Consume ';'
+                let right = self.parse_expression(current_precedence)?; // Parse right side
+                return Some(Expression::Sequence(Box::new(left), Box::new(right)));
+            }
+            _ => {
+                self.errors
+                    .push(Error::InfixDoesNotExistFor(self.curr.clone()));
+                return None;
+            }
+        };
+
+        let precedence = self.curr_precedence();
+        self.advance(); // Consume the infix operator
+
+        // Parse the right-hand side expression with the precedence of the operator
+        match self.parse_expression(precedence) {
+            Some(right) => Some(Expression::Infix(operator, Box::new(left), Box::new(right))),
+            None => None, // Error parsing right operand
+        }
+    }
+
+    fn parse_apply_expression(&mut self, function: Expression) -> Option<Expression> {
+        self.advance();
+        let argument = match self.parse_expression(Precedence::Apply) {
+            Some(arg) => Box::new(arg),
+            None => return None,
+        };
+        Some(Expression::Apply {
+            func: Box::new(function),
+            argument,
+        })
+    }
+
+    pub fn parse_prefix_expression(&mut self) -> Option<Expression> {
+        let operator = match self.curr {
+            Token::Bang => Prefix::Bang,
+            Token::Minus => Prefix::Minus,
+            Token::Tilde => Prefix::Tilde,
+            _ => return None,
+        };
+        self.advance();
+        match self.parse_expression(Precedence::Prefix) {
+            Some(expression) => Some(Expression::Prefix(operator, Box::new(expression))),
+            None => None,
+        }
     }
 }

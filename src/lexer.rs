@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use crate::tokens::Token;
 
 pub fn is_whitespace(c: char) -> bool {
@@ -89,6 +87,8 @@ impl Lexer {
             "match" => Token::Match,
             "with" => Token::With,
             "of" => Token::Of,
+            "true" => Token::Bool(true),
+            "false" => Token::Bool(false),
             _ => Token::Identifier(ident),
         }
     }
@@ -243,11 +243,18 @@ impl Lexer {
                     Token::LeftParen
                 }
             }
+            '*' => {
+                if self.read_peek_char() == '*' {
+                    self.read();
+                    Token::AsteriskAsterisk
+                } else {
+                    Token::Asterisk
+                }
+            }
             '~' => Token::Tilde,
             '%' => Token::Percent,
             '?' => Token::QuestionMark,
             '&' => Token::Ampersand,
-            '*' => Token::Asterisk,
             '^' => Token::Caret,
             '|' => Token::VerticalBar,
             '/' => Token::BackwardSlash,
@@ -255,10 +262,12 @@ impl Lexer {
             '}' => Token::RightBrace,
             '[' => Token::LeftBracket,
             ']' => Token::RightBracket,
+            ')' => Token::RightParen,
             ',' => Token::Comma,
             '"' => return self.read_string(),
             '0'..='9' => return self.read_number(),
             'a'..='z' | 'A'..='Z' => return self.read_identifier(),
+            '\'' => Token::Apostrophe,
             '\\' => Token::ForwardSlash,
             '\0' => Token::EOF,
             _ => Token::Illegal,
