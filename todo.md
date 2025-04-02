@@ -48,10 +48,6 @@ This list tracks features and improvements needed for the GML parser, AST, and r
 
 ## Operators & Expressions (Parser & AST)
 
--   [ ] **Float Operators:**
-    -   [ ] Add distinct tokens (`Token::PlusDot`, `MinusDot`, `AsteriskDot`, `ForwardSlashDot`).
-    -   [ ] Add corresponding `ast::Infix` variants.
-    -   [ ] Update `parse_infix_expression` to handle these tokens.
 -   [ ] **String Concatenation:**
     -   [ ] Choose an operator (`++` or `^`). Add `Token` and `ast::Infix` variant.
     -   [ ] Update `parse_infix_expression`.

@@ -93,6 +93,20 @@ impl Lexer {
         }
     }
 
+    pub fn read_type_variable(&mut self) -> Token {
+        self.read();
+        let current = self.curr;
+        loop {
+            if self.ch.is_alphabetic() {
+                self.read();
+            } else {
+                break;
+            }
+        }
+
+        Token::TypeVariable(self.utf8[current..self.curr].iter().collect::<String>())
+    }
+
     pub fn read_string(&mut self) -> Token {
         self.read();
         let mut result = String::new();
@@ -267,7 +281,7 @@ impl Lexer {
             '"' => return self.read_string(),
             '0'..='9' => return self.read_number(),
             'a'..='z' | 'A'..='Z' => return self.read_identifier(),
-            '\'' => Token::Apostrophe,
+            '\'' => return self.read_type_variable(),
             '\\' => Token::ForwardSlash,
             '\0' => Token::EOF,
             _ => Token::Illegal,

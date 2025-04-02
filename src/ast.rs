@@ -38,25 +38,25 @@ pub enum TypeAnnotation {
 pub enum TypeDefinition {
     Alias {
         name: Identifier,
-        parameters: Vec<Identifier>,
+        params: Vec<Identifier>,
         target: TypeAnnotation,
     },
     Record {
         name: Identifier,
-        parameters: Vec<Identifier>,
+        params: Vec<Identifier>,
         fields: Vec<(Identifier, TypeAnnotation)>,
     },
     Union {
         name: Identifier,
-        parameters: Vec<Identifier>,
+        params: Vec<Identifier>,
         variants: Vec<UnionVariant>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UnionVariant {
-    tag: Identifier,
-    types: Vec<TypeAnnotation>,
+    pub tag: Identifier,
+    pub types: Vec<TypeAnnotation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

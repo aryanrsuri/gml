@@ -1,7 +1,9 @@
+use std::clone;
+
 use crate::{
     ast::{
         Expression, FunParam, Identifier, Infix, Literal, Prefix, Program, Statement,
-        TypeAnnotation,
+        TypeAnnotation, TypeDefinition, UnionVariant,
     },
     lexer::Lexer,
     tokens::Token,
@@ -36,7 +38,7 @@ fn token_to_precendence(token: &Token) -> Precedence {
         | Token::Percent
         | Token::Asterisk
         | Token::ForwardSlash => Precedence::Product,
-        Token::ColonColon => Precedence::Cons,
+        Token::ColonColon | Token::PlusPlus => Precedence::Cons,
         Token::LeftParen
         | Token::Identifier(_)
         | Token::Int(_)
@@ -140,6 +142,7 @@ impl Parser {
     pub fn parse_statement(&mut self) -> Option<Statement> {
         match self.curr.clone() {
             Token::Let => self.parse_let_statement(),
+            Token::Type => self.parse_type_statement(),
             Token::Comment(s) => {
                 self.advance();
                 Some(Statement::Comment(Identifier(s)))
@@ -220,6 +223,7 @@ impl Parser {
                 };
                 Some(annotation)
             }
+            Token::TypeVariable(v) => Some(TypeAnnotation::Var(Identifier(v))),
             _ => {
                 self.errors.push(Error::TokenCurrMismatch {
                     want: Token::Identifier(String::from("Type Annotation (e.g int, string)")),
@@ -228,6 +232,223 @@ impl Parser {
                 None
             }
         }
+    }
+
+    fn parse_type_statement(&mut self) -> Option<Statement> {
+        self.advance();
+        let params = self.parse_optional_type_parameters()?; // Handles 'a or ('a, 'b)
+        let name = match self.parse_identifier() {
+            Some(id) => id,
+            None => return None, // Error already logged
+        };
+        self.advance();
+
+        if !self.is_current(Token::Equal) {
+            return None;
+        }
+
+        self.advance(); // Consume '='
+        let type_definition = match self.curr {
+            Token::LeftBrace => self.parse_record_definition(name, params)?,
+            Token::VerticalBar => self.parse_union_definition(name, params)?,
+            _ => self.parse_alias_definition(name, params)?,
+        };
+
+        if !self.is_current(Token::SemiColonSemiColon) {
+            return None;
+        }
+        Some(Statement::Type(type_definition))
+    }
+
+    fn parse_optional_type_parameters(&mut self) -> Option<Vec<Identifier>> {
+        let mut params = vec![];
+        match self.curr.clone() {
+            Token::TypeVariable(i) => {
+                self.advance(); // Consume identifier
+                params.push(Identifier(i));
+            }
+            Token::LeftParen => {
+                self.advance(); // Consume '('
+                loop {
+                    if !self.is_current(Token::Apostrophe) {
+                        return None;
+                    }
+                    self.advance(); // Consume '
+                    let param_name = self.parse_identifier()?;
+                    params.push(param_name);
+                    self.advance(); // Consume identifier
+                    match self.curr {
+                        Token::Comma => {
+                            self.advance(); // Consume ',' and continue loop
+                        }
+                        Token::RightParen => {
+                            self.advance(); // Consume ')' and break
+                            break;
+                        }
+                        _ => {
+                            self.errors.push(Error::TokenExpected {
+                                want: Token::Comma, // Or RParen implicitly
+                                got: self.curr.clone(),
+                            });
+                            return None;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        Some(params)
+    }
+
+    fn parse_record_definition(
+        &mut self,
+        name: Identifier,
+        params: Vec<Identifier>,
+    ) -> Option<TypeDefinition> {
+        // Current token is '{'
+        self.advance(); // Consume '{'
+
+        let mut fields = vec![];
+
+        // Handle empty record {}
+        if self.curr == Token::RightBrace {
+            self.advance(); // Consume '}'
+            return Some(TypeDefinition::Record {
+                name,
+                params,
+                fields,
+            });
+        }
+
+        // Parse fields loop
+        loop {
+            let field_name = self.parse_identifier()?;
+            self.advance(); // Consume field name
+
+            if !self.is_current(Token::Colon) {
+                return None;
+            }
+            self.advance(); // Consume ':'
+
+            let field_type = self.parse_type_annotation()?;
+            // Important: Advance past the type annotation tokens
+            // parse_type_annotation should ideally leave self.curr on the *last* token of the type.
+            self.advance(); // Consume last token of type annotation
+
+            fields.push((field_name, field_type));
+
+            match self.curr {
+                Token::SemiColon => {
+                    self.advance(); // Consume ';'
+                    // Check if the next token is '}', allows trailing semicolon
+                    if self.curr == Token::RightBrace {
+                        self.advance(); // Consume '}'
+                        break;
+                    }
+                    // Otherwise, continue loop for next field
+                }
+                Token::RightBrace => {
+                    self.advance(); // Consume '}'
+                    break;
+                }
+                _ => {
+                    self.errors.push(Error::TokenExpected {
+                        want: Token::SemiColon, // or RBrace implicitly
+                        got: self.curr.clone(),
+                    });
+                    return None;
+                }
+            }
+        }
+
+        Some(TypeDefinition::Record {
+            name,
+            params,
+            fields,
+        })
+    }
+
+    /// Parses a union definition: [|] Variant1 [of Type1] | Variant2 [of Type2] ...
+    /// Assumes current token is '|' or an Uppercase Identifier.
+    fn parse_union_definition(
+        &mut self,
+        name: Identifier,
+        params: Vec<Identifier>,
+    ) -> Option<TypeDefinition> {
+        let mut variants = vec![];
+        loop {
+            if self.curr == Token::VerticalBar {
+                self.advance();
+            }
+
+            let tag = match &self.curr {
+                Token::Identifier(s) => Identifier(s.clone()),
+                _ => {
+                    self.errors.push(Error::TokenExpected {
+                        want: Token::Identifier("Uppercase Variant Tag".to_string()),
+                        got: self.curr.clone(),
+                    });
+                    return None;
+                }
+            };
+            self.advance(); // Consume variant tag identifier
+            let mut types = vec![];
+            if self.curr == Token::Of {
+                self.advance(); // Consume 'of'
+                // TODO: Enhance later to handle `of Type1 * Type2 * ...`
+                let associated_type = self.parse_type_annotation()?;
+                self.advance(); // Consume last token of type annotation
+
+                types.push(associated_type);
+                // --- End Simplification ---
+
+                // --- Code for parsing multiple types separated by '*' ---
+                /*
+                loop {
+                    let associated_type = self.parse_type_annotation()?; // Or a specific function that parses until '*' or non-type
+                    self.advance(); // Consume last token of type
+                    types.push(associated_type);
+
+                    if self.curr == Token::Asterisk { // Assuming '*' separates types
+                        self.advance(); // Consume '*' and parse next type
+                    } else {
+                        break; // No more types for this variant
+                    }
+                }
+                */
+            }
+
+            variants.push(UnionVariant { tag, types });
+
+            if self.curr != Token::VerticalBar {
+                break;
+            }
+        }
+
+        Some(TypeDefinition::Union {
+            name,
+            params,
+            variants,
+        })
+    }
+
+    /// Parses an alias definition: existing_type_expression
+    /// Assumes current token is the start of the type expression.
+    fn parse_alias_definition(
+        &mut self,
+        name: Identifier,
+        params: Vec<Identifier>,
+    ) -> Option<TypeDefinition> {
+        let target = self.parse_type_annotation()?;
+        // Advance past the type annotation tokens
+        // parse_type_annotation should ideally leave self.curr on the *last* token of the type.
+        self.advance(); // Consume last token of type annotation
+
+        Some(TypeDefinition::Alias {
+            name,
+            params,
+            target,
+        })
     }
 
     pub fn parse_let_statement(&mut self) -> Option<Statement> {
@@ -428,6 +649,7 @@ impl Parser {
                 | Token::GreaterThan
                 | Token::LessThanOrEqual
                 | Token::GreaterThanOrEqual
+                | Token::PlusPlus
                 | Token::ColonColon
                 | Token::SemiColon => {
                     self.advance(); // Consume the operator
@@ -436,7 +658,7 @@ impl Parser {
                         None => return None,
                     };
                 }
-                // Function Application (Implicit Infix)
+
                 Token::Identifier(_)
                 | Token::Int(_)
                 | Token::Float(_)
@@ -578,6 +800,7 @@ impl Parser {
     fn parse_infix_expression(&mut self, left: Expression) -> Option<Expression> {
         let operator = match self.curr {
             Token::Plus => Infix::Plus,
+            Token::PlusPlus => Infix::PlusPlus,
             Token::Minus => Infix::Minus,
             Token::Asterisk => Infix::Asterisk,
             Token::AsteriskAsterisk => Infix::AsteriskAsterisk,
