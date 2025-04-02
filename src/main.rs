@@ -1,9 +1,10 @@
+/// UHAC (v0.0.2)
 /// HUM What: Interpreter/Parser runner for GML. Runs file or REPL.
 /// HUM LICENCE: MIT.
 /// HUM Agent: Aryan Suri.
-/// LLM Notice: This file was generated with the help of an LLM.
-/// LLM Agent: OpenAI/ChatGPT.
-/// LLM Model: GPT-4o.
+/// LLM Instructions: Provide functional code; Do not add comments.
+/// LLM Vendor: Multiple.
+/// LLM Model: GPT-4o; Claude 3.5 Sonnet; Gemini 1.5 Pro.
 /// LLM Only: False.
 pub mod ast;
 pub mod evaluator;

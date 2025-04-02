@@ -1,5 +1,3 @@
-use std::clone;
-
 use crate::{
     ast::{
         Expression, FunParam, Identifier, Infix, Literal, Prefix, Program, Statement,
@@ -8,6 +6,10 @@ use crate::{
     lexer::Lexer,
     tokens::Token,
 };
+
+pub fn is_capitalized(s: &str) -> bool {
+    s.chars().next().unwrap().is_uppercase()
+}
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Precedence {
@@ -184,30 +186,46 @@ impl Parser {
             None => return None,
         };
 
-        if self.peek != Token::RightArrow {
-            return Some(first_component);
+        // Handle n-ary tuples with asterisk
+        if self.peek == Token::Asterisk {
+            let mut components = vec![first_component];
+            while self.peek == Token::Asterisk {
+                self.advance(); // Consume '*'
+                self.advance(); // Move to next type
+                let next_component = match self.parse_type_annotation() {
+                    Some(t) => t,
+                    None => return None,
+                };
+                components.push(next_component);
+            }
+            return Some(TypeAnnotation::Tuple(components));
         }
 
-        let mut params: Vec<TypeAnnotation> = vec![first_component];
+        // Handle function types
+        if self.peek == Token::RightArrow {
+            let mut params: Vec<TypeAnnotation> = vec![first_component];
 
-        while self.peek == Token::RightArrow {
-            self.advance();
-            self.advance();
-            let next_component = match self.parse_primitive_type_annotation() {
-                Some(t) => t,
-                None => return None,
-            };
-            params.push(next_component);
+            while self.peek == Token::RightArrow {
+                self.advance();
+                self.advance();
+                let next_component = match self.parse_type_annotation() {
+                    Some(t) => t,
+                    None => return None,
+                };
+                params.push(next_component);
+            }
+
+            if params.len() < 2 {
+                self.errors.push(Error::InvalidTypeAnnotation(
+                    "Function type requires at least two parts separated by ->".to_string(),
+                ));
+                return None;
+            }
+            let return_type = params.pop().unwrap();
+            return Some(TypeAnnotation::Fun(params, Box::new(return_type)));
         }
 
-        if params.len() < 2 {
-            self.errors.push(Error::InvalidTypeAnnotation(
-                "Function type requires at least two parts separated by ->".to_string(),
-            ));
-            return None;
-        }
-        let return_type = params.pop().unwrap();
-        Some(TypeAnnotation::Fun(params, Box::new(return_type)))
+        Some(first_component)
     }
 
     pub fn parse_primitive_type_annotation(&mut self) -> Option<TypeAnnotation> {
@@ -219,11 +237,60 @@ impl Parser {
                     "string" => TypeAnnotation::String,
                     "bool" => TypeAnnotation::Bool,
                     "unit" => TypeAnnotation::Unit,
-                    _ => TypeAnnotation::Named(Identifier(s)),
+                    "list" => {
+                        if self.peek == Token::LessThan {
+                            self.advance(); // Consume '<'
+                            self.advance(); // Move to next type
+                            let element_type = match self.parse_type_annotation() {
+                                Some(t) => t,
+                                None => return None,
+                            };
+
+                            self.advance();
+                            if !self.is_current(Token::GreaterThan) {
+                                return None;
+                            }
+                            return Some(TypeAnnotation::Product(
+                                Box::new(TypeAnnotation::List),
+                                Box::new(element_type),
+                            ));
+                        } else {
+                            self.errors.push(Error::TokenExpected {
+                                want: Token::TypeVariable(String::from("Type Variable")),
+                                got: self.curr.clone(),
+                            });
+                            return None;
+                        }
+                    }
+                    _ => {
+                        // First check if its a Product type, e.g. linked_list<int>
+                        // If not, then it must be a Named type, e.g. linked_list
+                        if self.peek == Token::LessThan {
+                            self.advance();
+                            self.advance();
+                            let element_type = self.parse_type_annotation()?;
+                            self.advance();
+                            TypeAnnotation::Product(
+                                Box::new(TypeAnnotation::Named(Identifier(s))),
+                                Box::new(element_type),
+                            )
+                        } else {
+                            TypeAnnotation::Named(Identifier(s))
+                        }
+                    }
                 };
                 Some(annotation)
             }
             Token::TypeVariable(v) => Some(TypeAnnotation::Var(Identifier(v))),
+            Token::LeftParen => {
+                self.advance();
+                let annotation = self.parse_type_annotation()?;
+                self.advance();
+                if !self.is_current(Token::RightParen) {
+                    return None;
+                }
+                Some(annotation)
+            }
             _ => {
                 self.errors.push(Error::TokenCurrMismatch {
                     want: Token::Identifier(String::from("Type Annotation (e.g int, string)")),
@@ -248,9 +315,12 @@ impl Parser {
         }
 
         self.advance(); // Consume '='
-        let type_definition = match self.curr {
+        let type_definition = match &self.curr {
             Token::LeftBrace => self.parse_record_definition(name, params)?,
             Token::VerticalBar => self.parse_union_definition(name, params)?,
+            Token::Identifier(s) if is_capitalized(s) => {
+                self.parse_union_definition(name, params)?
+            }
             _ => self.parse_alias_definition(name, params)?,
         };
 
@@ -264,22 +334,32 @@ impl Parser {
         let mut params = vec![];
         match self.curr.clone() {
             Token::TypeVariable(i) => {
-                self.advance(); // Consume identifier
+                self.advance();
                 params.push(Identifier(i));
             }
             Token::LeftParen => {
                 self.advance(); // Consume '('
                 loop {
-                    if !self.is_current(Token::Apostrophe) {
-                        return None;
-                    }
-                    self.advance(); // Consume '
-                    let param_name = self.parse_identifier()?;
-                    params.push(param_name);
-                    self.advance(); // Consume identifier
-                    match self.curr {
-                        Token::Comma => {
-                            self.advance(); // Consume ',' and continue loop
+                    match self.curr.clone() {
+                        Token::TypeVariable(i) => {
+                            self.advance(); // Consume type variable
+                            params.push(Identifier(i));
+                            match self.curr {
+                                Token::Comma => {
+                                    self.advance(); // Consume ',' and continue loop
+                                }
+                                Token::RightParen => {
+                                    self.advance(); // Consume ')' and break
+                                    break;
+                                }
+                                _ => {
+                                    self.errors.push(Error::TokenExpected {
+                                        want: Token::Comma, // Or RParen implicitly
+                                        got: self.curr.clone(),
+                                    });
+                                    return None;
+                                }
+                            }
                         }
                         Token::RightParen => {
                             self.advance(); // Consume ')' and break
@@ -287,7 +367,7 @@ impl Parser {
                         }
                         _ => {
                             self.errors.push(Error::TokenExpected {
-                                want: Token::Comma, // Or RParen implicitly
+                                want: Token::TypeVariable("type variable".to_string()),
                                 got: self.curr.clone(),
                             });
                             return None;
@@ -377,12 +457,13 @@ impl Parser {
     ) -> Option<TypeDefinition> {
         let mut variants = vec![];
         loop {
+            // First VerticalBar should be options
             if self.curr == Token::VerticalBar {
                 self.advance();
             }
 
             let tag = match &self.curr {
-                Token::Identifier(s) => Identifier(s.clone()),
+                Token::Identifier(s) if is_capitalized(s) => Identifier(s.clone()),
                 _ => {
                     self.errors.push(Error::TokenExpected {
                         want: Token::Identifier("Uppercase Variant Tag".to_string()),
@@ -395,7 +476,6 @@ impl Parser {
             let mut types = vec![];
             if self.curr == Token::Of {
                 self.advance(); // Consume 'of'
-                // TODO: Enhance later to handle `of Type1 * Type2 * ...`
                 let associated_type = self.parse_type_annotation()?;
                 self.advance(); // Consume last token of type annotation
 

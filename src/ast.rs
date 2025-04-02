@@ -22,10 +22,12 @@ pub enum TypeAnnotation {
     String,
     Bool,
     Unit,
+    List,
     // alias, record, union
     Named(Identifier),
     // list * int ; option * string
-    Product(Identifier, Vec<TypeAnnotation>),
+    // FIXME: Do I actually need to use a TypeAnnotation for List, or can it just be an identifier?
+    Product(Box<TypeAnnotation>, Box<TypeAnnotation>),
     // fun : int * bool -> String
     Fun(Vec<TypeAnnotation>, Box<TypeAnnotation>),
     // tuple : int * bool * string

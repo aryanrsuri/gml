@@ -15,7 +15,6 @@ pub enum Token {
     Percent,
     Colon,
     Period,
-    Apostrophe,
     Ampersand,
     Plus,
     Minus,
