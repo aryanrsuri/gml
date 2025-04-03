@@ -4,7 +4,6 @@ pub struct Identifier(pub String);
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Statement {
-    Comment(Identifier),
     Let {
         name: Identifier,
         annotation: Option<TypeAnnotation>,
@@ -98,7 +97,7 @@ pub enum Expression {
     },
     Tuple(Vec<Expression>),
     List(Vec<Expression>),
-    Record(Identifier, Vec<(Identifier, Expression)>),
+    Record(Vec<(Identifier, Expression)>),
     // NOTE: Could be a struct
     // E.g Some 5 ; Ok "Value"
     Variant(Identifier, Identifier, Vec<Expression>),

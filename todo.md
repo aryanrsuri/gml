@@ -4,8 +4,7 @@ This list tracks features and improvements needed for the GML parser, AST, and r
 
 
 ## Core Language Features (Parser & AST)
-
--   [ ] **`let rec` Bindings:**
+-   [/] **`let rec` Bindings:**
     -   [ ] Add `recursive: bool` flag to `ast::Statement::Let`.
     -   [ ] Modify `parse_let_statement` to detect and consume the `rec` keyword after `let` and set the flag.
 -   [ ] **`let ... in ...` Expressions:**

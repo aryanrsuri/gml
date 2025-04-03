@@ -87,6 +87,7 @@ impl Lexer {
             "match" => Token::Match,
             "with" => Token::With,
             "of" => Token::Of,
+            "return" => Token::Return,
             "true" => Token::Bool(true),
             "false" => Token::Bool(false),
             _ => Token::Identifier(ident),

@@ -119,6 +119,10 @@ impl Parser {
     pub fn advance(&mut self) {
         self.curr = self.peek.clone();
         self.peek = self.lexer.advance();
+        while matches!(self.curr, Token::Comment(_)) {
+            self.curr = self.peek.clone();
+            self.peek = self.lexer.advance();
+        }
     }
 
     pub fn parse_program(&mut self) -> Program {
@@ -145,10 +149,7 @@ impl Parser {
         match self.curr.clone() {
             Token::Let => self.parse_let_statement(),
             Token::Type => self.parse_type_statement(),
-            Token::Comment(s) => {
-                self.advance();
-                Some(Statement::Comment(Identifier(s)))
-            }
+            Token::Return => self.parse_return_statement(),
             _ => match self.parse_expression(Precedence::Lowest) {
                 Some(expression) => {
                     self.advance();
@@ -165,6 +166,15 @@ impl Parser {
                 }
             },
         }
+    }
+
+    pub fn parse_return_statement(&mut self) -> Option<Statement> {
+        self.advance();
+        let expression = match self.parse_expression(Precedence::Lowest) {
+            Some(expr) => expr,
+            None => return None,
+        };
+        Some(Statement::Return(expression))
     }
 
     pub fn parse_identifier(&mut self) -> Option<Identifier> {
@@ -411,8 +421,6 @@ impl Parser {
             self.advance(); // Consume ':'
 
             let field_type = self.parse_type_annotation()?;
-            // Important: Advance past the type annotation tokens
-            // parse_type_annotation should ideally leave self.curr on the *last* token of the type.
             self.advance(); // Consume last token of type annotation
 
             fields.push((field_name, field_type));
@@ -705,6 +713,7 @@ impl Parser {
             Token::Fun => self.parse_function_expression()?,
             Token::LeftBracket => self.parse_list_expression()?,
             Token::LeftParen => self.parse_grouped_expression()?,
+            Token::LeftBrace => self.parse_record_expression()?,
             Token::Bang | Token::Minus | Token::Tilde => self.parse_prefix_expression()?,
             _ => {
                 self.errors
@@ -764,6 +773,50 @@ impl Parser {
         Some(left_expr)
     }
 
+    fn parse_record_expression(&mut self) -> Option<Expression> {
+        self.advance();
+        let mut fields = vec![];
+        if self.curr == Token::RightBrace {
+            return Some(Expression::Record(fields));
+
+        }
+        loop {
+            let field_name = match self.parse_identifier() {
+                Some(id) => id,
+                None => return None,
+            };
+            self.advance();
+            if !self.is_current(Token::Equal) { return None}
+            self.advance();
+
+            let field_value = match self.parse_expression(Precedence::Lowest) {
+                Some(expr) => expr,
+                None => return None,
+            };
+            fields.push((field_name, field_value));
+            self.advance();
+            match self.curr {
+                Token::SemiColon => {
+                    self.advance();
+                    if self.curr == Token::RightBrace {
+                        break;
+                    }
+                }
+                Token::RightBrace => {
+                    break;
+                }
+                _ => {
+                    self.errors.push(Error::TokenExpected {
+                        want: Token::SemiColon,
+                        got: self.curr.clone(),
+                    });
+                    return None;
+                }
+            }
+        }
+        Some(Expression::Record(fields))
+    }
+
     fn parse_list_expression(&mut self) -> Option<Expression> {
         self.advance();
         if self.curr == Token::RightBracket {
@@ -797,7 +850,7 @@ impl Parser {
         self.advance();
         let expr = self.parse_expression(Precedence::Lowest)?;
         match self.peek {
-            Token::RightParen | Token::Comma => self.advance(),
+            Token::RightParen | Token::Comma | Token::SemiColon => self.advance(),
             _ => {
                 self.errors.push(Error::TokenPeekMismatch {
                     want: Token::RightParen,
@@ -811,6 +864,10 @@ impl Parser {
             return self.parse_tuple_expression(expr);
         }
 
+        if self.curr == Token::SemiColon {
+            todo!("Sequence");
+        }
+
         self.advance();
 
         Some(expr)
@@ -820,7 +877,7 @@ impl Parser {
         let mut elements = vec![first];
         while self.curr == Token::Comma {
             self.advance();
-            let next = match self.parse_expression(Precedence::Lowest) {
+            let next = match self.parse_expression(Precedence::Sequence) {
                 Some(expression) => expression,
                 None => return None,
             };
